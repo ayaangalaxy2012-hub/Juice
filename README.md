@@ -40,9 +40,9 @@ These six tools, along with live streaming and an agentic loop, let Juice take h
 ### 1. Install
 
 ```bash
-git clone https://github.com/KodeEnterprise/Juice
+git clone https://github.com/ayaangalaxy2012-hub/Juice
 cd juice
-pip3 install flask requests beautifulsoup4
+pip install flask requests beautifulsoup4
 ```
 
 ### 2. Run
