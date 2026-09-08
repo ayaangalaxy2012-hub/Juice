@@ -1,7 +1,7 @@
 # Juice
 
 
-https://github.com/user-attachments/assets/2d0f4dad-a80d-421e-ae87-dbc90fd0433e
+<img width="1040" height="645" alt="Screenshot 2026-09-08 102414" src="https://github.com/user-attachments/assets/adb1d35c-0749-4af0-a509-c1bd141f45dd" />
 
 
 ## AI coding agent — right in your browser.
