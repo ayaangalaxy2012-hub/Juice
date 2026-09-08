@@ -1,6 +1,8 @@
 # Juice
 
-<video src="demo.mp4" width="100%" autoplay loop muted controls></video>
+
+https://github.com/user-attachments/assets/2d0f4dad-a80d-421e-ae87-dbc90fd0433e
+
 
 ## AI coding agent — right in your browser.
 
