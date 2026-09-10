@@ -821,7 +821,7 @@ function md(t){
   h=h.replace(/^>\s+(.+)$/gm,'<blockquote>$1</blockquote>');
   h=h.replace(/<\/blockquote>\n?<blockquote>/g,'<br>');
   h=h.replace(/(?:^[*-]\s+.+(?:\n|$))+/gm,m=>'<ul>'+m.trim().split('\n').map(l=>`<li>${l.replace(/^[*-]\s+/,'')}</li>`).join('')+'</ul>');
-  h=h.replace(/(?:^\d+\.\s+.+(?:\n|$))+/gm,m=>'ol>'+m.trim().split('\n').map(l=>`<li>${l.replace(/^\d+\.\s+/,'')}</li>`).join('')+'</ol>');
+  h=h.replace(/(?:^\d+\.\s+.+(?:\n|$))+/gm,m=>'<ol>'+m.trim().split('\n').map(l=>`<li>${l.replace(/^\d+\.\s+/,'')}</li>`).join('')+'</ol>');
   h=h.replace(/\n\n/g,'</p><p>');
   h='<p>'+h+'</p>';
   h=h.replace(/<p><\/p>/g,'');
