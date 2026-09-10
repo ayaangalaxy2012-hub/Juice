@@ -71,7 +71,7 @@ Go to **http://localhost:5000**. You'll see a setup screen with these fields:
 | **Provider** | `openrouter` or `google` — choose which LLM provider to use |
 | **Working directory** | Path to your project folder (click *validate* to check it) |
 | **API key** | Your OpenRouter key (from [openrouter.ai/keys](https://openrouter.ai/keys)) or Google AI Studio key (from [aistudio.google.com](https://aistudio.google.com/apikey)) |
-| **Model ID** | e.g. `anthropic/claude-sonnet-4-5` (OpenRouter) or `gemini-2.0-flash` (Google AI Studio) — any model from your provider works |
+| **Model ID** | e.g. `anthropic/claude-sonnet-5` (OpenRouter) or `gemini-3.8-flash` (Google AI Studio) — any model from your provider works |
 | **Rules (optional)** | Custom rules appended to the system prompt to guide how Juice behaves |
 
 You can also **save** or **load a preset** (`.juiceconfig` file in your working directory) to persist your provider, key, model, working directory, and rules.
