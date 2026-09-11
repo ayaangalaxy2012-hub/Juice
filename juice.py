@@ -132,11 +132,9 @@ Rules:
 Note: The user may provide additional rules in the chat. Follow these rules if provided.
 """
 
-# ── apply_patch engine ──────────────────────────────────────────────
 MAX_PATCH_BYTES = 256 * 1024
 
 _HUNK_HDR_RE = re.compile(r"^@@\s*(?:-(\d+)(?:,(\d+))?\s*\+(\d+)(?:,(\d+))?\s*@@)?\s*(.*)?$")
-
 
 class PatchError(Exception):
     def __init__(self, error, file=None, hunk=None, reason=None):
@@ -146,35 +144,27 @@ class PatchError(Exception):
         self.hunk = hunk
         self.reason = reason
 
-
 def _normalize_patch_rel(p):
     p = (p or "").strip().replace("\\", "/")
     while p.startswith("./"):
         p = p[2:]
     return p
 
-
 def _resolve_patch_path(working_dir, rel_path):
-    """Resolve a patch path safely inside the workspace. Returns (abs Path, normalized rel)."""
     rel = _normalize_patch_rel(rel_path)
     if not rel:
         raise PatchError("Invalid path", file=rel_path, reason="Empty file path")
     if "\x00" in rel:
         raise PatchError("Invalid path", file=rel, reason="Null byte in path")
-    # NB: os.path.isabs is OS-dependent (on Windows '/abs' is not "absolute"),
-    # so also reject POSIX-style absolute paths explicitly.
     if rel.startswith("/") or os.path.isabs(rel) or os.path.isabs(rel_path.strip() or "") or re.match(r"^[a-zA-Z]:[\\/]", rel_path.strip() or "") or rel.startswith("//"):
         raise PatchError("Path escapes workspace", file=rel, reason="Absolute paths are not allowed; use workspace-relative paths")
     base = Path(working_dir).resolve()
-    # Join using OS separator then resolve (strict=False so new files work)
     target = (base / Path(*rel.split("/"))).resolve()
     try:
         target.relative_to(base)
     except ValueError:
         raise PatchError("Path escapes workspace", file=rel, reason=f"Path '{rel}' resolves outside the workspace")
-    # Extra guard: reject any '..' that would escape even before resolution
     return target, rel
-
 
 def _detect_newline(raw: bytes):
     if b"\r\n" in raw:
@@ -186,10 +176,8 @@ def _detect_newline(raw: bytes):
     trailing = (raw.endswith(b"\n") or raw.endswith(b"\r")) if raw else True
     return style, trailing
 
-
 def _is_binary_raw(raw: bytes):
     return b"\x00" in raw
-
 
 PATCH_TEMPLATE_HINT = (
     "Expected either the Juice patch format — '*** Begin Patch', then per file "
@@ -198,9 +186,7 @@ PATCH_TEMPLATE_HINT = (
     "'*** End Patch' — or a standard unified diff ('--- a/<path>' / '+++ b/<path>' / '@@' hunks)."
 )
 
-
 def _strip_code_fences(text):
-    """Drop a surrounding markdown code fence (``` or ```diff) if the model wrapped the patch."""
     lines = text.splitlines()
     while lines and not lines[0].strip():
         lines.pop(0)
@@ -212,15 +198,10 @@ def _strip_code_fences(text):
         lines = lines[:-1]
     return lines
 
-
 def _is_patch_marker(ln, word):
-    # Column-anchored (must start with '*', so marker-prefixed hunk content can
-    # never false-positive) but tolerant of trailing '***' and casing, e.g.
-    # '*** Begin Patch ***'.
     if not ln.startswith("*"):
         return False
     return ln.strip().strip("*").strip().lower() == word
-
 
 def _looks_like_unified_diff(lines):
     has_old = has_new = has_hunk = False
@@ -233,19 +214,16 @@ def _looks_like_unified_diff(lines):
             has_hunk = True
     return has_old and has_new and has_hunk
 
-
 def _strip_diff_path(p):
     p = (p or "").strip()
     if len(p) >= 2 and p[0] in "\"'" and p[-1] == p[0]:
         p = p[1:-1]
-    p = p.split("\t")[0].strip()  # drop trailing timestamps
+    p = p.split("\t")[0].strip()
     if p.startswith(("a/", "b/")) and len(p) > 2:
         p = p[2:]
     return p
 
-
 def _validate_ops(ops):
-    """Shared validation for both patch formats. Raises PatchError."""
     seen = set()
     for op in ops:
         rel = _normalize_patch_rel(op["path"])
@@ -265,9 +243,7 @@ def _validate_ops(ops):
                                      reason="*** Add File *** hunks may only contain '+' lines (found '-' line)")
     return ops
 
-
 def _parse_unified_diff(lines):
-    """Parse a standard unified / git diff into the same ops structure."""
     ops = []
     current = None
     current_hunk = None
@@ -317,7 +293,7 @@ def _parse_unified_diff(lines):
             if current is None:
                 raise PatchError("Invalid patch", reason=f"'@@' hunk outside of a file diff (line {line_no})")
             if current["op"] == "delete":
-                current_hunk = None  # deleted-file hunks carry no needed info; path suffices
+                current_hunk = None
                 continue
             m = _HUNK_HDR_RE.match(raw.strip())
             if not m:
@@ -329,24 +305,23 @@ def _parse_unified_diff(lines):
             current_hunk = {"header": raw, "hint": hint, "lines": []}
             current["hunks"].append(current_hunk)
             continue
-        # Hunk content (or ignorable filler).
         if current is None:
             if not raw.strip():
                 continue
             raise PatchError("Invalid patch", reason=f"Content outside of a file diff (line {line_no}): '{raw[:60]}'")
         if current["op"] == "delete":
             if not raw.strip() or raw[0] in (" ", "-", "\\"):
-                continue  # nothing to verify for deletions; the path identifies the file
+                continue
             if raw[0] == "+":
                 raise PatchError("Invalid patch", file=_normalize_patch_rel(current["path"]),
                                  reason="Additions ('+' lines) make no sense inside a file deletion")
             raise PatchError("Invalid hunk line", file=_normalize_patch_rel(current["path"]),
                              reason=f"Line must start with ' ', '+' or '-': '{raw[:80]}'")
         if raw == "":
-            ensure_hunk()["lines"].append((" ", ""))  # blank context line in unified diffs
+            ensure_hunk()["lines"].append((" ", ""))
             continue
         if raw.startswith("\\"):
-            continue  # "\ No newline at end of file"
+            continue
         h = ensure_hunk()
         if raw[0] in (" ", "+", "-"):
             h["lines"].append((raw[0], raw[1:]))
@@ -358,17 +333,12 @@ def _parse_unified_diff(lines):
         raise PatchError("Invalid patch", reason="No file diffs found. " + PATCH_TEMPLATE_HINT)
     return _validate_ops(ops)
 
-
 def _parse_patch(patch_text):
-    """Parse full patch text into ops. Raises PatchError on any syntax problem."""
     if patch_text is None or not isinstance(patch_text, str):
         raise PatchError("Invalid patch", reason="Patch must be a string")
     if len(patch_text.encode("utf-8")) > MAX_PATCH_BYTES:
         raise PatchError(f"Patch too large (max {MAX_PATCH_BYTES} bytes)", reason="Configurable limit exceeded")
     lines = _strip_code_fences(patch_text)
-    # locate begin/end. Directives live at column 0 (hunk content lines always
-    # carry a ' '/'+'/'-' marker prefix, so a marker-prefixed lookalike can
-    # never false-positive here).
     begin = end = None
     for i, ln in enumerate(lines):
         if _is_patch_marker(ln, "begin patch"):
@@ -386,7 +356,7 @@ def _parse_patch(patch_text):
         raise PatchError("Invalid patch", reason="Missing '*** End Patch' (patch was cut off? resend the COMPLETE patch). " + PATCH_TEMPLATE_HINT)
     body = lines[begin + 1:end]
     ops = []
-    current = None  # {op, path, hunks: [{header, hint, lines: [(kind, text)]}]}
+    current = None
     current_hunk = None
 
     def new_file_op(op, path, line_no):
@@ -404,11 +374,8 @@ def _parse_patch(patch_text):
         return current_hunk
 
     for offset, raw in enumerate(body):
-        line_no = begin + 2 + offset  # 1-indexed approx
+        line_no = begin + 2 + offset
         s = raw.strip()
-        # Structural markers must sit at column 0. Hunk content lines always
-        # start with a ' '/'+'/'-' marker, so e.g. a context line ' @@x' or
-        # ' *** bold' can never be mistaken for a header/directive.
         if raw.startswith("*** Update File:"):
             path = raw.split("*** Update File:", 1)[1]
             current = new_file_op("update", path, line_no)
@@ -436,13 +403,12 @@ def _parse_patch(patch_text):
             if not m:
                 raise PatchError("Invalid hunk header", file=_normalize_patch_rel(current["path"]),
                                  hunk=len(current["hunks"]) + 1, reason=f"Malformed '@@' header: '{raw}'")
-            hint = int(m.group(1)) - 1 if m.group(1) else None  # old start, 0-indexed
+            hint = int(m.group(1)) - 1 if m.group(1) else None
             if hint is not None and hint < 0:
                 hint = 0
             current_hunk = {"header": raw, "hint": hint, "lines": []}
             current["hunks"].append(current_hunk)
-        elif raw == "" :
-            # Blank separator line — never file content. Use explicit ' ', '+', '-' for blank lines.
+        elif raw == "":
             continue
         elif raw == "\\ No newline at end of file":
             continue
@@ -458,8 +424,6 @@ def _parse_patch(patch_text):
             if raw[0] in (" ", "+", "-"):
                 h["lines"].append((raw[0], raw[1:]))
             elif current["op"] == "add" and not raw.startswith(("@", "*")):
-                # Tolerated: bare lines in *** Add File *** mean additions (no
-                # matching semantics there, so this is unambiguous).
                 h["lines"].append(("+", raw))
             else:
                 raise PatchError("Invalid hunk line", file=_normalize_patch_rel(current["path"]),
@@ -470,17 +434,14 @@ def _parse_patch(patch_text):
         raise PatchError("Invalid patch", reason="Patch contains no file operations")
     return _validate_ops(ops)
 
-
 def _mismatch_hint(file_lines, old_seq):
-    """Diagnose WHY context didn't match (whitespace-only differences are the
-    classic LLM failure). Returns '' or a ' Hint: ...' suffix. Never fuzzy-matches."""
     interesting = [l for l in old_seq if l.strip()]
     if not interesting or not file_lines:
         return ""
     exact = set(file_lines)
     missing = [l for l in interesting if l not in exact]
     if not missing:
-        return ""  # all lines exist individually; only their order/adjacency differs
+        return ""
     rstripped = {l.rstrip() for l in file_lines}
     if all(l in rstripped for l in missing):
         return " Hint: those lines exist in the file but differ by trailing whitespace — copy them exactly."
@@ -494,16 +455,12 @@ def _mismatch_hint(file_lines, old_seq):
                 return f" Hint: similar text at line {n} ('{fl.strip()[:80]}') — context must match exactly, extend it."
     return ""
 
-
 def _find_hunk_index(file_lines, old_seq, hint):
-    """Locate old_seq in file_lines. Prefers hint, else requires exactly one global match."""
     n, m = len(file_lines), len(old_seq)
     if m == 0:
-        # Pure-addition hunk with zero context: only applicable via explicit offset
         if hint is not None and 0 <= hint <= n:
             return hint
         raise PatchError("Hunk failed to apply", reason="Hunk has no context/removal lines; add context lines or a '@@ -start,count +start,count @@' offset")
-    # Try hinted position first (supports normal unified-diff offsets)
     if hint is not None and 0 <= hint <= n - m:
         if file_lines[hint:hint + m] == old_seq:
             return hint
@@ -514,7 +471,6 @@ def _find_hunk_index(file_lines, old_seq, hint):
             if len(matches) > 1 and hint is None:
                 break
     if not matches:
-        # Build a short preview to help the model fix context
         preview = " | ".join(old_seq[:3])[:200]
         raise PatchError("Hunk failed to apply",
                          reason=f"Expected context was not found (looking for: '{preview}...'). Read the file first and copy context exactly."
@@ -522,14 +478,9 @@ def _find_hunk_index(file_lines, old_seq, hint):
     if len(matches) > 1:
         raise PatchError("Hunk failed to apply",
                          reason=f"Ambiguous match: context occurs {len(matches)} times. Add more surrounding context lines to make it unique.")
-    # Single global match — if a hint was given but points elsewhere, we still use the unique match
-    # unless the hint was valid and matched (handled above). This keeps bare-@@ patches working
-    # while honoring explicit offsets when they match.
     return matches[0]
 
-
 def _apply_hunks_to_lines(orig_lines, hunks, rel):
-    """Apply hunks sequentially to orig_lines. Returns (new_lines, insertions, deletions)."""
     cur = list(orig_lines)
     ins = dels = 0
     for idx, h in enumerate(hunks, start=1):
@@ -549,9 +500,7 @@ def _apply_hunks_to_lines(orig_lines, hunks, rel):
         dels += h_del
     return cur, ins, dels
 
-
 def execute_apply_patch(patch, dry_run, working_dir):
-    """Two-phase atomic apply. Returns success/failure dict (never partial)."""
     base = Path(working_dir)
     if not base.exists() or not base.is_dir():
         return {"success": False, "error": "Invalid working directory", "reason": f"{working_dir} is not a directory", "applied": False}
@@ -561,9 +510,8 @@ def execute_apply_patch(patch, dry_run, working_dir):
         return {"success": False, "error": e.error, **({"file": e.file} if e.file else {}),
                 **({"hunk": e.hunk} if e.hunk else {}), "reason": e.reason or e.error, "applied": False}
 
-    # Phase 1 — snapshot + validate + compute in memory
-    snapshots = {}   # rel -> {target, raw, text, lines, newline, trailing, mode, size, mtime_ns}
-    planned = {}     # rel -> {target, op, new_lines, newline, trailing, old_lines}
+    snapshots = {}
+    planned = {}
     total_ins = total_del = 0
     diffs = []
     try:
@@ -577,7 +525,6 @@ def execute_apply_patch(patch, dry_run, working_dir):
             if op["op"] == "add":
                 if os.path.lexists(target):
                     raise PatchError("Add failed", file=rel, reason="File already exists")
-                # Validate parent is a dir (or will be created inside workspace)
                 new_lines = []
                 for h in op["hunks"]:
                     for k, t in h["lines"]:
@@ -606,7 +553,7 @@ def execute_apply_patch(patch, dry_run, working_dir):
                                 "old_lines": old_lines, "newline": "\n", "trailing": False}
                 diff = difflib.unified_diff(old_lines, [], fromfile=f"a/{rel}", tofile=f"b/{rel}", lineterm="")
                 diffs.append("\n".join(list(diff)))
-            else:  # update
+            else:
                 if not os.path.lexists(target) or not target.is_file():
                     raise PatchError("Update failed", file=rel, reason="File not found; use *** Add File *** for new files")
                 raw = target.read_bytes()
@@ -645,7 +592,6 @@ def execute_apply_patch(patch, dry_run, working_dir):
         return {"success": True, "dry_run": True, "files_changed": files_changed,
                 "insertions": total_ins, "deletions": total_del, "diff": full_diff, "applied": False}
 
-    # Phase 2 — concurrent-modification guard, then atomic-ish write (all validated already)
     try:
         for rel, snap in snapshots.items():
             cur_raw = snap["target"].read_bytes()
@@ -653,7 +599,6 @@ def execute_apply_patch(patch, dry_run, working_dir):
                 return {"success": False, "error": "Concurrent modification detected", "file": rel,
                         "reason": "File changed between validation and write; no files were modified. Re-read and retry.",
                         "applied": False}
-            # Re-resolve to catch symlink swaps between phases
             try:
                 uretarget, _ = _resolve_patch_path(working_dir, rel)
             except PatchError as e:
@@ -661,11 +606,9 @@ def execute_apply_patch(patch, dry_run, working_dir):
             if uretarget != snap["target"]:
                 return {"success": False, "error": "Concurrent modification detected", "file": rel,
                         "reason": "File path resolution changed; no files were modified.", "applied": False}
-        # All clear — write everything
         for rel in files_changed:
             p = planned[rel]
             target = p["target"]
-            # Final safety: re-check containment (handles TOCTOU on new parents)
             _resolve_patch_path(working_dir, rel)
             if p["op"] == "delete":
                 target.unlink()
@@ -696,17 +639,12 @@ def execute_apply_patch(patch, dry_run, working_dir):
     return {"success": True, "files_changed": files_changed, "insertions": total_ins,
             "deletions": total_del, "diff": full_diff, "applied": True}
 
-# ── end apply_patch engine ──────────────────────────────────────────
-
-# ── read_file engine (ranged reads + hard output limits) ──────────────
 READ_MAX_LINES = 500
 READ_MAX_BYTES = 50 * 1024
 READ_TRUNC_LINES = "[OUTPUT TRUNCATED: 500 line limit]"
 READ_TRUNC_BYTES = "[OUTPUT TRUNCATED: 50 KB output limit]"
 
-
 def _parse_read_lineno(value, name, path):
-    """Return an int line number or an ERROR string."""
     if isinstance(value, bool):
         return f"ERROR: {name} must be an integer (got {value!r}) for {path}"
     try:
@@ -716,7 +654,6 @@ def _parse_read_lineno(value, name, path):
     if n < 1:
         return f"ERROR: {name} must be >= 1 (got {n}) for {path}"
     return n
-
 
 def execute_read_file(path_arg, args, working_dir):
     p = Path(working_dir) / path_arg
@@ -731,12 +668,11 @@ def execute_read_file(path_arg, args, working_dir):
     has_start = args.get("start_line") is not None
     has_end = args.get("end_line") is not None
 
-    # Whole-file read (no range): raw content, subject to the same hard limits.
     if not has_start and not has_end:
         if total == 0:
             return "(empty file)"
         if len(all_lines) <= READ_MAX_LINES and len(text.encode("utf-8")) <= READ_MAX_BYTES:
-            return text  # byte-identical to the file; never reflow small reads
+            return text
         out_lines = all_lines
         notice = None
         if len(out_lines) > READ_MAX_LINES:
@@ -744,7 +680,6 @@ def execute_read_file(path_arg, args, working_dir):
             notice = READ_TRUNC_LINES
         out = "\n".join(out_lines)
         if notice is None and len(out.encode("utf-8")) > READ_MAX_BYTES:
-            # Trim to whole lines that fit within the byte budget.
             kept = []
             used = 0
             for ln in out_lines:
@@ -760,7 +695,6 @@ def execute_read_file(path_arg, args, working_dir):
             out += f"\n{notice} ({total} lines total in {path_arg}; re-read with start_line/end_line to page through it)"
         return out
 
-    # Ranged read: 1-indexed, inclusive, rendered as 'N | content'.
     start = 1
     end = total
     if has_start:
@@ -776,7 +710,7 @@ def execute_read_file(path_arg, args, working_dir):
     if start > total:
         return f"ERROR: start_line ({start}) is beyond end of file ({total} lines) for {path_arg}"
     if end > total:
-        end = total  # clamp; header below reports the actual range returned
+        end = total
     if start > end:
         return f"ERROR: start_line ({start}) is after end_line ({end}) for {path_arg}"
 
@@ -787,11 +721,10 @@ def execute_read_file(path_arg, args, working_dir):
         notice = READ_TRUNC_LINES
     rendered = [f"{n} | {all_lines[n - 1]}" for n in range(start, hi + 1)]
     if notice is None:
-        # Enforce the byte budget on whole rendered lines.
         while rendered and len(("\n".join(rendered)).encode("utf-8")) > READ_MAX_BYTES:
             rendered.pop()
         if len(rendered) < hi - start + 1:
-            if not rendered:  # a single huge line exceeds the budget on its own
+            if not rendered:
                 rendered = [f"{start} | {all_lines[start - 1]}"]
             notice = READ_TRUNC_BYTES
             hi = start + len(rendered) - 1
@@ -800,15 +733,12 @@ def execute_read_file(path_arg, args, working_dir):
         out += f"\n{notice}"
     return out
 
-# ── search_code engine (pure-Python local search; grep only over SSH) ──
 SEARCH_MAX_RESULTS = 200
 SEARCH_MAX_LINE_CHARS = 500
 SEARCH_MAX_FILE_BYTES = 10 * 1024 * 1024
 SEARCH_SKIP_DIRS = {"node_modules", "__pycache__"}
 
-
 def _local_search_code(pattern, base_dir, working_dir, file_pattern):
-    """Walk base_dir and regex-match line by line. Returns the result string."""
     try:
         rx = re.compile(pattern)
     except re.error as e:
@@ -826,7 +756,6 @@ def _local_search_code(pattern, base_dir, working_dir, file_pattern):
     matches = []
     truncated = False
     for root, dirs, files in os.walk(base_resolved):
-        # Prune junk dirs in place (hidden, node_modules, __pycache__).
         dirs[:] = sorted(d for d in dirs
                          if not d.startswith(".") and d not in SEARCH_SKIP_DIRS)
         for name in sorted(files):
@@ -839,7 +768,7 @@ def _local_search_code(pattern, base_dir, working_dir, file_pattern):
                 with open(fp, "rb") as f:
                     head = f.read(8192)
                     if b"\x00" in head:
-                        continue  # binary, like grep -I
+                        continue
                     rest = f.read()
                 text = (head + rest).decode("utf-8", errors="replace")
             except (OSError, PermissionError):
@@ -867,8 +796,6 @@ def _local_search_code(pattern, base_dir, working_dir, file_pattern):
     out = [f"Found {len(matches)} match(es){' (showing first 200)' if truncated else ''}:", "───────"]
     out.extend(f"  {m}" for m in matches)
     return "\n".join(out)
-
-# ── end search_code engine ────────────────────────────────────────────
 
 def execute_tool(name, args, working_dir):
     try:
@@ -940,7 +867,6 @@ def execute_tool(name, args, working_dir):
                 return "ERROR: Missing required 'pattern' (non-empty regex string)"
 
             if host:
-                # Remote hosts are Unix-like: grep over SSH still works there.
                 base_path = str(Path(working_dir) / search_path) if search_path else working_dir
                 remote_dir = remote_path if remote_path else base_path
                 ssh_cmd = "grep -rnI --no-messages"
@@ -965,7 +891,6 @@ def execute_tool(name, args, working_dir):
                     out_parts.append(f"  [exit code: {r.returncode}]")
                 return "\n".join(out_parts)
 
-            # Local search is pure Python (grep does not exist on Windows).
             base_path = str(Path(working_dir) / search_path) if search_path else working_dir
             return _local_search_code(pattern, base_path, working_dir, file_pattern)
 
@@ -997,7 +922,6 @@ def fetch_url(url):
         return f"[Could not fetch {url}: {e}]"
 
 def sanitize_messages_for_provider(messages, provider, model):
-    """Ensure Gemini/Google OpenAI compatibility receives required thought signatures."""
     if provider != "google" and "gemini" not in model.lower():
         return messages
 
@@ -1008,7 +932,6 @@ def sanitize_messages_for_provider(messages, provider, model):
             new_tcs = []
             for tc in msg_copy["tool_calls"]:
                 tc_item = dict(tc)
-                # Check for existing thought signature
                 extra = tc_item.get("extra_content", {})
                 existing_sig = None
                 if isinstance(extra, dict):
@@ -1016,7 +939,6 @@ def sanitize_messages_for_provider(messages, provider, model):
                 if not existing_sig:
                     existing_sig = tc_item.get("thought_signature")
 
-                # Fallback to bypass sentinel if missing
                 sig = existing_sig or "skip_thought_signature_validator"
                 tc_item["thought_signature"] = sig
                 tc_item["extra_content"] = {"google": {"thought_signature": sig}}
@@ -1024,10 +946,9 @@ def sanitize_messages_for_provider(messages, provider, model):
             msg_copy["tool_calls"] = new_tcs
         sanitized.append(msg_copy)
     return sanitized
+
 def is_quota_exceeded(response):
-    """Detect if the response contains Google AI Studio's quota exceeded error."""
     try:
-        # Check non-200 responses to avoid consuming stream on success
         if not response.ok:
             return "You exceeded your current quota" in response.text
     except Exception:
@@ -1101,7 +1022,6 @@ def sse_stream(api_key, model, wdir, msgs, rules_extra="", provider="openrouter"
                     continue
                 delta = choices[0].get("delta", {})
 
-                # Extract chunk-level thought signature
                 extra = delta.get("extra_content", {})
                 if isinstance(extra, dict):
                     sig = extra.get("google", {}).get("thought_signature") or extra.get("thought_signature")
@@ -1134,7 +1054,6 @@ def sse_stream(api_key, model, wdir, msgs, rules_extra="", provider="openrouter"
                             if fn.get("arguments"):
                                 tool_calls[idx]["function"]["arguments"] += fn["arguments"]
 
-                        # Extract per-tool-call thought signature
                         tc_extra = tc.get("extra_content", {})
                         if isinstance(tc_extra, dict):
                             sig = tc_extra.get("google", {}).get("thought_signature") or tc_extra.get("thought_signature")
@@ -1150,7 +1069,6 @@ def sse_stream(api_key, model, wdir, msgs, rules_extra="", provider="openrouter"
             yield f"event: done\ndata: {json.dumps({'context_limit': context_limit, 'content': assistant_content})}\n\n"
             return
 
-        # Announce tool info
         for idx, tc in tool_calls.items():
             try: args = json.loads(tc["function"]["arguments"])
             except: args = {}
@@ -1161,7 +1079,6 @@ def sse_stream(api_key, model, wdir, msgs, rules_extra="", provider="openrouter"
         if assistant_content:
             log_agent_msg(assistant_content)
 
-        # Assemble assistant message with preserved thought signatures
         formatted_tool_calls = []
         is_google = (provider == "google" or "gemini" in model.lower())
         for idx, tc in sorted(tool_calls.items()):
