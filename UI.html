@@ -240,6 +240,19 @@ kbd{background:rgba(196,93,0,0.06);border:1px solid var(--o-border);border-radiu
 .rd-hdr{color:var(--text3);font-weight:500;display:block;padding:0 4px;border-bottom:1px solid var(--o-border);margin-bottom:4px;padding-bottom:3px;font-size:10px;text-transform:uppercase;letter-spacing:0.05em}
 .rd-sep{display:block;height:1px;background:var(--o-border);margin:4px 0}
 .rd-wrap{font-family:var(--mono);line-height:1.5}
+/* apply_patch result cards */
+.ap-wrap{font-family:var(--mono);line-height:1.5}
+.ap-meta{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;align-items:center}
+.ap-file{background:rgba(196,93,0,0.07);border:1px solid var(--o-border);border-radius:4px;padding:1px 7px;font-size:11px;font-weight:500;color:var(--o)}
+.ap-count{font-size:11px;color:var(--text2)}
+.ap-count b{font-weight:600}
+.ap-ins{color:#1a7a2e;font-weight:600}
+.ap-del{color:#c0392b;font-weight:600}
+.ap-dry{display:inline-block;font-size:10px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:#8a5a00;background:rgba(192,122,0,0.10);border:1px solid rgba(192,122,0,0.3);border-radius:4px;padding:1px 7px}
+.ap-err{border-left:3px solid #c0392b;background:rgba(192,57,43,0.05);border-radius:6px;padding:8px 10px;font-size:12px}
+.ap-err-t{color:#b82e2e;font-weight:600;margin-bottom:2px}
+.ap-err-f{color:var(--text2);font-size:11px}
+.ap-ok{color:#1a7a2e;font-weight:600;font-size:12px;margin-bottom:4px}
 
 /* Input Area */
 .input-area{
@@ -724,8 +737,7 @@ async function doStreamTurn(){
     else if(evt==='tool_info'){
       const lt=liveTools[data.index];if(!lt)return;
       lt.tname.textContent=data.tool;
-      const argsStr=Object.entries(data.args||{}).map(([k,v])=>`${k}=${JSON.stringify(String(v).substring(0,35))}`).join(', ');
-      lt.tprev.textContent=`(${esc(argsStr||'')})`;
+      lt.tprev.textContent=`(${esc(toolPreview(data.tool,data.args||{}))})`;
     }
     else if(evt==='tool_result'){
       const lt=liveTools[data.index];
@@ -735,6 +747,9 @@ async function doStreamTurn(){
         const resultStr=String(data.result);
         if(data.tool==='edit_file'&&resultStr.includes('\u2500\u2500\u2500 diff \u2500\u2500\u2500')){
           lt.tres.innerHTML=renderDiffHtml(resultStr);
+          lt.tres.style.fontFamily='var(--mono)';
+        }else if(data.tool==='apply_patch'){
+          lt.tres.innerHTML=renderApplyPatchHtml(resultStr);
           lt.tres.style.fontFamily='var(--mono)';
         }else{
           lt.tres.textContent=resultStr;
@@ -786,6 +801,63 @@ function renderDiffHtml(text){
   html+='</div>';return html;
 }
 
+function toolPreview(tool,args){
+  try{
+    if(tool==='apply_patch'){
+      const p=String(args.patch||'');
+      const files=[];
+      const re=/\*\*\*\s+(?:Update File|Add File|Delete File):\s*([^\n\r]+)/g;
+      let m;while((m=re.exec(p))&&files.length<5)files.push(m[1].trim());
+      if(!files.length){
+        const ru=/^\+\+\+\s+(?:b\/)?([^\n\r]+)/gm;
+        while((m=ru.exec(p))&&files.length<5){const f=m[1].trim();if(f&&f!=='/dev/null')files.push(f)}
+      }
+      const more=(p.match(/\*\*\*\s+(?:Update File|Add File|Delete File):/g)||[]).length>files.length?' +more':'';
+      const dry=args.dry_run?' dry_run':'';
+      if(files.length)return files.join(', ')+more+dry;
+      return `patch(${(p.length/1024).toFixed(1)}kb)${dry}`;
+    }
+    if(tool==='read_file'&&(args.start_line!=null||args.end_line!=null)){
+      const s=args.start_line!=null?args.start_line:'1';
+      const e=args.end_line!=null?args.end_line:'…';
+      return `${args.path||''} lines ${s}-${e}`;
+    }
+    return Object.entries(args||{}).map(([k,v])=>`${k}=${JSON.stringify(String(v).substring(0,35))}`).join(', ');
+  }catch(e){return ''}
+}
+function renderUnifiedDiffHtml(diffText){
+  let html='';
+  for(const line of String(diffText).split('\n')){
+    if(line.startsWith('--- ')||line.startsWith('+++ ')){html+=`<span class="rd-hdr">${esc(line)}</span>`;}
+    else if(line.startsWith('@@')){html+=`<span class="rd-hdr">${esc(line)}</span>`;}
+    else if(line.startsWith('+'))html+=`<span class="rd-add">${esc(line.substring(1))}</span>`;
+    else if(line.startsWith('-'))html+=`<span class="rd-del">${esc(line.substring(1))}</span>`;
+    else if(line.trim()==='')html+='<span class="rd-sep"></span>';
+    else html+=`<span class="rd-ctx">${esc(line.startsWith(' ')?line.substring(1):line)}</span>`;
+  }
+  return html;
+}
+function renderApplyPatchHtml(resultStr){
+  let r;try{r=JSON.parse(resultStr)}catch(e){return esc(resultStr)}
+  let html='<div class="ap-wrap">';
+  if(r&&r.success){
+    const files=(r.files_changed||[]).map(f=>`<span class="ap-file">${esc(f)}</span>`).join('');
+    html+=`<div class="ap-ok">apply_patch ✓ ${esc(String((r.files_changed||[]).length))} file(s)</div>`;
+    html+=`<div class="ap-meta">${files}<span class="ap-count"><b class="ap-ins">+${r.insertions||0}</b> / <b class="ap-del">-${r.deletions||0}</b></span>`;
+    if(r.dry_run)html+='<span class="ap-dry">dry run — no writes</span>';
+    html+='</div>';
+    if(r.diff)html+=renderUnifiedDiffHtml(r.diff);
+    else html+='<span class="rd-ctx">(no textual diff)</span>';
+  }else if(r){
+    const where=[r.file?'file: '+r.file:'', (r.hunk!=null?'hunk: '+r.hunk:'')].filter(Boolean).join(' · ');
+    html+=`<div class="ap-err"><div class="ap-err-t">apply_patch ✗ ${esc(r.error||'failed')} — nothing was written</div>`;
+    if(where)html+=`<div class="ap-err-f">${esc(where)}</div>`;
+    if(r.reason)html+=`<div class="ap-err-f">${esc(r.reason)}</div></div>`;
+    else html+='</div>';
+    if(r.diff)html+=renderUnifiedDiffHtml(r.diff);
+  }else{html+=esc(resultStr)}
+  html+='</div>';return html;
+}
 function appendUser(text,atts){
   const d=document.createElement('div');d.className='msg user';
   let h=esc(text);for(const a of atts)h=h.replace(esc(a.label),`<span class="ref-tag">${esc(a.label)}</span>`);
@@ -802,7 +874,7 @@ function appendErr(text){
   d.innerHTML=`<div class="avatar" style="color:#b82e2e;border-color:rgba(192,57,43,0.3);background:rgba(192,57,43,0.07)">!</div><div class="mbody"><div class="mrole" style="color:#b82e2e">error</div><div class="mcontent" style="color:#b82e2e">${esc(text)}</div></div>`;
   $('msgs').appendChild(d);scroll();
 }
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'<').replace(/>/g,'>').replace(/"/g,'"')}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
 function md(t){
   let h=esc(t);

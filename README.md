@@ -22,15 +22,16 @@ Point Juice at any project folder, tell it what to do, and it reads, writes, edi
 - *"Set up a React + Vite project from scratch"*
 - *"Search my whole project for deprecated API calls"*
 
-We have 6 tools:
-1. **read_file** — read any file
+We have 7 tools:
+1. **read_file** — read any file, or a line range (`start_line`/`end_line`, max 500 lines / 50 KB per call, output numbered as `120 | ...`)
 2. **write_file** — create or overwrite a file
 3. **edit_file** — find-and-replace in a file (shows diff)
 4. **list_dir** — tree-style directory listing
 5. **run_command** — run any shell command
 6. **search_code** — regex search across files (local or SSH remote)
+7. **apply_patch** — atomic multi-file patch in one call (`*** Begin Patch` / `*** Update File` + `@@` hunks / `*** Add File` / `*** Delete File` / `*** End Patch`; a standard unified diff also works). All-or-nothing: validates every hunk first, writes nothing on failure. Supports `dry_run: true` to preview. Hunk lines need ` `/`-`/`+` markers and 2–4 lines of exact context copied from a fresh read.
 
-These six tools, along with live streaming and an agentic loop, let Juice take high-level requests and autonomously work through them — reading, writing, searching, running, and iterating until the job is done.
+These seven tools, along with live streaming and an agentic loop, let Juice take high-level requests and autonomously work through them — reading, writing, searching, running, and iterating until the job is done.
 
 ---
 
@@ -91,6 +92,7 @@ Click **start session**. A chat interface opens. Type what you need and hit Ente
 - **Presets** — save and load your setup config (provider, key, model, rules) per project in a `.juiceconfig` file.
 - **Context limit warnings** — Juice detects when the model's context window fills up and warns you.
 - **Diff previews** — `edit_file` results render as inline red/green diffs, so you can see exactly what changed.
+- **Atomic patches** — `apply_patch` results render per-file with insertion/deletion counts and a unified diff; failures show the exact file, hunk, and reason, with nothing written.
 - **SSH remote search** — `search_code` can search on a remote host via SSH, not just locally.
 - **New session** — Click "new session" in the sidebar to start fresh.
 - **Watch the terminal** — all tool calls and results are logged there too.
@@ -100,7 +102,7 @@ Click **start session**. A chat interface opens. Type what you need and hit Ente
 
 ## How it works (briefly)
 
-Juice runs a local web server (`juice.py`) that presents a chat UI and communicates with an LLM — via **OpenRouter** or **Google AI Studio**. The LLM has access to six tools — read, write, edit, list files, run shell commands, and search code (locally or over SSH) — which it uses to fulfill your requests. Juice runs a full agentic loop: it chains tool calls, executes them on your machine, feeds results back to the model, and iterates until the job is done. Everything runs on your machine. Your code never leaves your computer.
+Juice runs a local web server (`juice.py`) that presents a chat UI and communicates with an LLM — via **OpenRouter** or **Google AI Studio**. The LLM has access to seven tools — read, write, edit, list files, run shell commands, search code (locally or over SSH), and atomic multi-file `apply_patch` — which it uses to fulfill your requests. Juice runs a full agentic loop: it chains tool calls, executes them on your machine, feeds results back to the model, and iterates until the job is done. Everything runs on your machine. Your code never leaves your computer.
 
 ---
 
